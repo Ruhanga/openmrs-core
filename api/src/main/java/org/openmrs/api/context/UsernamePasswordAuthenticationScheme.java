@@ -9,6 +9,7 @@
  */
 package org.openmrs.api.context;
 
+import org.openmrs.api.db.ContextDAO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,7 +25,7 @@ public class UsernamePasswordAuthenticationScheme extends DaoAuthenticationSchem
 	private static final Logger log = LoggerFactory.getLogger(UsernamePasswordAuthenticationScheme.class);
 	
 	@Override
-	public Authenticated authenticate(Credentials credentials)
+	public Authenticated authenticate(Credentials credentials, ContextDAO contextDAO)
 			throws ContextAuthenticationException {
 
 		log.debug("Authenticating client: " + credentials.getClientName());
@@ -37,7 +38,7 @@ public class UsernamePasswordAuthenticationScheme extends DaoAuthenticationSchem
 			throw new ContextAuthenticationException("The provided credentials could not be used to authenticated with the specified authentication scheme.", e);
 		}
 		
-		return new BasicAuthenticated( getContextDAO().authenticate(userPassCreds.getUsername(), userPassCreds.getPassword()) , UsernamePasswordCredentials.SCHEME);
+		return new BasicAuthenticated( contextDAO.authenticate(userPassCreds.getUsername(), userPassCreds.getPassword()) , UsernamePasswordCredentials.SCHEME);
 	}
 
 }

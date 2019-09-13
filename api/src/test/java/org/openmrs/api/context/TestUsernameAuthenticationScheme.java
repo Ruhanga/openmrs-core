@@ -10,6 +10,7 @@
 package org.openmrs.api.context;
 
 import org.openmrs.User;
+import org.openmrs.api.db.ContextDAO;
 
 /*
  * This test auth scheme logs a user simply based on asserting that its username is valid and points to an existing user.
@@ -17,9 +18,9 @@ import org.openmrs.User;
 public class TestUsernameAuthenticationScheme extends DaoAuthenticationScheme {
 
 	@Override
-	public Authenticated authenticate(Credentials credentials) throws ContextAuthenticationException {
+	public Authenticated authenticate(Credentials credentials, ContextDAO contextDAO) throws ContextAuthenticationException {
 		
-		User user = getContextDAO().getUserByUsername(credentials.getClientName()); // that's the actual authentication
+		User user = contextDAO.getUserByUsername(credentials.getClientName()); // that's the actual authentication
 		
 		return new BasicAuthenticated(user, "test-scheme");
 	}

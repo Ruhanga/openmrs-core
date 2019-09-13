@@ -25,6 +25,7 @@ import org.openmrs.UserSessionListener;
 import org.openmrs.UserSessionListener.Event;
 import org.openmrs.UserSessionListener.Status;
 import org.openmrs.api.APIAuthenticationException;
+import org.openmrs.api.db.ContextDAO;
 import org.openmrs.util.LocaleUtility;
 import org.openmrs.util.OpenmrsConstants;
 import org.openmrs.util.RoleConstants;
@@ -97,6 +98,7 @@ public class UserContext implements Serializable {
 	
 	/**
 	 * Authenticate user with the provided credentials. The authentication scheme must be Spring wired, see {@link Context#getAuthenticationScheme()}.
+	 * @param contextDAO 
 	 * 
 	 * @param The credentials to use to authenticate
 	 * @return The authenticated client information
@@ -104,14 +106,14 @@ public class UserContext implements Serializable {
 	 * 
 	 * @since 2.2.1, 2.3.0
 	 */
-	public Authenticated authenticate(Credentials credentials)
+	public Authenticated authenticate(Credentials credentials, ContextDAO contextDAO)
 			throws ContextAuthenticationException {
 
 		log.debug("Authenticating client '" + credentials.getClientName() + "' with sheme: " + credentials.getAuthenticationScheme());
 
 		Authenticated authenticated = null;
 		try {
-			authenticated = authenticationScheme.authenticate(credentials);
+			authenticated = authenticationScheme.authenticate(credentials, contextDAO);
 			this.user = authenticated.getUser();
 			notifyUserSessionListener(this.user, Event.LOGIN, Status.SUCCESS);
 		}

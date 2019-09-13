@@ -9,6 +9,8 @@
  */
 package org.openmrs.api.context;
 
+import org.openmrs.api.db.ContextDAO;
+
 /**
  * Every authentication scheme should implement its authentication method out of this API.
  * 
@@ -16,6 +18,6 @@ package org.openmrs.api.context;
  */
 public interface AuthenticationScheme {
 	
-	public Authenticated authenticate(Credentials credentials) throws ContextAuthenticationException;
+	public Authenticated authenticate(Credentials credentials, ContextDAO contextDAO) throws ContextAuthenticationException;
 	
 }

@@ -149,7 +149,6 @@ public class Context {
 
 	private static Properties configProperties = new Properties();
 
-	private static AuthenticationScheme authenticationScheme;
 
 	/**
 	 * Default public constructor
@@ -186,26 +185,6 @@ public class Context {
 	 * Spring init method that sets the authentication scheme.
 	 */
 	static private void setAuthenticationScheme() {
-
-		authenticationScheme = new UsernamePasswordAuthenticationScheme();
-
-		try {
-			authenticationScheme = Context.getServiceContext().getApplicationContext().getBean(AuthenticationScheme.class); // manual autowiring (from a module)
-			log.info("An authentication scheme override was provided. Using this one in place of the OpenMRS default authentication scheme.");
-		}
-		catch(NoUniqueBeanDefinitionException e) {
-			log.error("Multiple authentication schemes overrides are being provided, this is currently not supported. Sticking to OpenMRS default authentication scheme.");
-		}
-		catch(NoSuchBeanDefinitionException e) {
-			log.debug("No authentication scheme override was provided. Sticking to OpenMRS default authentication scheme.");
-		}
-		catch(BeansException e){
-			log.error("Fatal error encountered when injecting the authentication scheme override. Sticking to OpenMRS default authentication scheme.");
-		}
-
-		if (authenticationScheme instanceof DaoAuthenticationScheme) {
-			((DaoAuthenticationScheme) authenticationScheme).setContextDao(getContextDAO());
-		}
 	}
 
 	/**
@@ -306,6 +285,25 @@ public class Context {
 	 * @return The enforced authentication scheme.
 	 */
 	public static AuthenticationScheme getAuthenticationScheme() {
+		AuthenticationScheme authenticationScheme = new UsernamePasswordAuthenticationScheme();
+
+		try {
+			authenticationScheme = Context.getServiceContext().getApplicationContext().getBean(AuthenticationScheme.class); // manual autowiring (from a module)
+			log.info("An authentication scheme override was provided. Using this one in place of the OpenMRS default authentication scheme.");
+		}
+		catch(NoUniqueBeanDefinitionException e) {
+			log.error("Multiple authentication schemes overrides are being provided, this is currently not supported. Sticking to OpenMRS default authentication scheme.");
+		}
+		catch(NoSuchBeanDefinitionException e) {
+			log.debug("No authentication scheme override was provided. Sticking to OpenMRS default authentication scheme.");
+		}
+		catch(BeansException e){
+			log.error("Fatal error encountered when injecting the authentication scheme override. Sticking to OpenMRS default authentication scheme.");
+		}
+
+		if (authenticationScheme instanceof DaoAuthenticationScheme) {
+			//((DaoAuthenticationScheme) authenticationScheme).setContextDao(getContextDAO());
+		}
 		return authenticationScheme;
 	}
 
@@ -346,7 +344,7 @@ public class Context {
 			throw new ContextAuthenticationException("Context cannot authenticate with null credentials.");
 		}
 
-		return getUserContext().authenticate(credentials);
+		return getUserContext().authenticate(credentials, getContextDAO());
 	}
 
 	/**
