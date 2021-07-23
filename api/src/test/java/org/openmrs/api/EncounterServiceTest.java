@@ -76,6 +76,7 @@ import org.openmrs.api.handler.ExistingVisitAssignmentHandler;
 import org.openmrs.api.handler.NoVisitAssignmentHandler;
 import org.openmrs.parameter.EncounterSearchCriteria;
 import org.openmrs.parameter.EncounterSearchCriteriaBuilder;
+import org.openmrs.test.Verifies;
 import org.openmrs.test.jupiter.BaseContextSensitiveTest;
 import org.openmrs.util.DateUtil;
 import org.openmrs.util.OpenmrsConstants;
@@ -314,14 +315,14 @@ public class EncounterServiceTest extends BaseContextSensitiveTest {
 	 * @see EncounterService#saveEncounter(Encounter)
 	 */
 	@Test
-	public void saveEncounter_shouldCascadeSaveToContainedObs() {
+	public void saveEncounter_shouldCascadeSaveToContainedObs() throws Exception {
 		EncounterService es = Context.getEncounterService();
 		// First, create a new Encounter
 		Encounter enc = buildEncounter();
 		
 		//add an obs to the encounter
 		Obs groupObs = new Obs();
-		Concept c = Context.getConceptService().getConcept(1);
+		Concept c = Context.getConceptService().getConcept(5497);
 		groupObs.setConcept(c);
 		
 		// add an obs to the group
@@ -333,15 +334,20 @@ public class EncounterServiceTest extends BaseContextSensitiveTest {
 		
 		//confirm that save and new enc id are cascaded to obs groupMembers
 		//even though childObs aren't directly associated to enc
-		assertNotNull(es.saveEncounter(enc), "save succeeds without error");
-		assertTrue(enc.getId() > 0, "enc save succeeds");
+		es.saveEncounter(enc);
 		
-		assertNotNull(groupObs.getObsId(), "obs save succeeds");
-		assertEquals(groupObs.getEncounter().getId(), enc.getId(), "encounter id propogated");
-		assertEquals(groupObs.getObsDatetime(), enc.getEncounterDatetime(), "encounter time propogated");
-		assertNotNull(childObs.getObsId(), "obs save succeeds");
-		assertEquals(childObs.getEncounter().getId(), enc.getId(), "encounter id propogated");
-		assertEquals(childObs.getObsDatetime(), enc.getEncounterDatetime(), "encounter time propogated");
+		// retrieve the encounter straight from the database
+		enc = es.getEncounter(enc.getId());
+		assertEquals("Underlying ConceptNumeric casts correctly when retrieved", "ConceptNumeric", enc.getObs().iterator().next().getConcept().getClass().getSimpleName());
+		
+		assertNotNull(enc);
+		assertTrue(enc.getId() > 0);
+		assertNotNull(groupObs.getObsId());
+		assertEquals(groupObs.getEncounter().getId(), enc.getId());
+		assertEquals(groupObs.getObsDatetime(), enc.getEncounterDatetime());
+		assertNotNull(childObs.getObsId());
+		assertEquals(childObs.getEncounter().getId(), enc.getId());
+		assertEquals(childObs.getObsDatetime(), enc.getEncounterDatetime());
 		
 	}
 	
