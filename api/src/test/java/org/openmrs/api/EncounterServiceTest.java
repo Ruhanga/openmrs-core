@@ -337,8 +337,8 @@ public class EncounterServiceTest extends BaseContextSensitiveTest {
 		es.saveEncounter(enc);
 		
 		// retrieve the encounter straight from the database
-		enc = es.getEncounter(enc.getId());
-		assertEquals("Underlying ConceptNumeric casts correctly when retrieved", "ConceptNumeric", enc.getObs().iterator().next().getConcept().getClass().getSimpleName());
+		enc = es.getEncounterByUuid(enc.getUuid());
+		assertEquals("ConceptNumeric", enc.getObs().iterator().next().getConcept().getClass().getSimpleName());
 		
 		assertNotNull(enc);
 		assertTrue(enc.getId() > 0);
