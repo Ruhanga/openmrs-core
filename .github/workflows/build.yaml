@@ -9,12 +9,14 @@ on:
       - 2.4.x
       - 2.5.x
       - 2.6.x
+      - TRUNK-6351-windows
   pull_request:
     branches:
       - master
       - 2.4.x
       - 2.5.x
       - 2.6.x
+      - TRUNK-6351-windows
   workflow_dispatch:
 
 permissions: read-all
@@ -24,7 +26,6 @@ jobs:
     strategy:
       matrix:
         platform:
-          - ubuntu-latest
           - windows-latest
         java-version:
           - 8
