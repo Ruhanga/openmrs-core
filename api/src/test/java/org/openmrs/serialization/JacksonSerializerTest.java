@@ -30,12 +30,17 @@ import org.openmrs.Encounter;
 import org.openmrs.GlobalProperty;
 import org.openmrs.api.AdministrationService;
 import org.openmrs.api.context.Context;
+import org.openmrs.layout.address.AddressTemplate;
 import org.openmrs.test.jupiter.BaseContextSensitiveTest;
+import org.openmrs.util.OpenmrsConstants;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 
 public class JacksonSerializerTest extends BaseContextSensitiveTest {
 
@@ -221,5 +226,37 @@ public class JacksonSerializerTest extends BaseContextSensitiveTest {
         public OrderedMapTypeWithNoArg(String arg1, String arg2) {
 			super(arg1, arg2);
 		}
+	}
+
+    @Test
+	public void deserialize_shouldNotDeserializeWhitelistedHierarchies() throws Exception {
+		// setup
+
+        Context.getAdministrationService().saveGlobalProperty(new GlobalProperty(
+			    OpenmrsConstants.GLOBAL_PROPERTY_ADDRESS_TEMPLATE, "<org.openmrs.layout.address.AddressTemplate>     <nameMappings class=\"properties\">       <property name=\"postalCode\" value=\"Location.postalCode\"/>       <property name=\"address2\" value=\"Location.address2\"/>       <property name=\"address1\" value=\"Location.address1\"/>       <property name=\"country\" value=\"Location.country\"/>       <property name=\"stateProvince\" value=\"Location.stateProvince\"/>       <property name=\"cityVillage\" value=\"Location.cityVillage\"/>     </nameMappings>     <sizeMappings class=\"properties\">       <property name=\"postalCode\" value=\"10\"/>       <property name=\"address2\" value=\"40\"/>       <property name=\"address1\" value=\"40\"/>       <property name=\"country\" value=\"10\"/>       <property name=\"stateProvince\" value=\"10\"/>       <property name=\"cityVillage\" value=\"10\"/>     </sizeMappings>     <lineByLineFormat>       <string>address1</string>       <string>address2</string>       <string>cityVillage stateProvince country postalCode</string>     </lineByLineFormat>   </org.openmrs.layout.address.AddressTemplate>"));
+        XmlMapper xmlMapper = new XmlMapper();
+        xmlMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        xmlMapper.setDefaultPropertyInclusion(JsonInclude.Value.construct(JsonInclude.Include.NON_EMPTY, JsonInclude.Include.NON_EMPTY));
+
+        SimpleXStreamSerializer xstreamserializer =  new SimpleXStreamSerializer();
+
+        String xml = "<AddressTemplate>  <nameMappings>    <entry>      <string>postalCode</string>      <string>Location.postalCode</string>    </entry>    <entry>      <string>address2</string>      <string>Location.address2</string>    </entry>    <entry>      <string>address1</string>      <string>Location.address1</string>    </entry>    <entry>      <string>country</string>      <string>Location.country</string>    </entry>    <entry>      <string>stateProvince</string>      <string>Location.stateProvince</string>    </entry>    <entry>      <string>cityVillage</string>      <string>Location.cityVillage</string>    </entry>  </nameMappings>  <sizeMappings>    <entry>      <string>postalCode</string>      <string>10</string>    </entry>    <entry>      <string>address2</string>      <string>40</string>    </entry>    <entry>      <string>address1</string>      <string>40</string>    </entry>    <entry>      <string>country</string>      <string>10</string>    </entry>    <entry>      <string>stateProvince</string>      <string>10</string>    </entry>    <entry>      <string>cityVillage</string>      <string>10</string>    </entry>  </sizeMappings>  <lineByLineFormat>    <string>address1</string>    <string>address2</string>    <string>cityVillage stateProvince country postalCode</string>  </lineByLineFormat>  <requiredElements/>  <maxTokens>0</maxTokens></AddressTemplate>";
+        AddressTemplate tmp = xmlMapper.readValue(xml, AddressTemplate.class);
+
+        // String jxml = xmlMapper.writeValueAsString(serializer.deserialize(Context.getLocationService().getAddressTemplate(), AddressTemplate.class));
+
+        // String xsxml = xstreamserializer.serialize(serializer.deserialize(Context.getLocationService().getAddressTemplate(), AddressTemplate.class));
+
+        // String jackJson = serializer.serialize(serializer.deserialize(Context.getLocationService().getAddressTemplate(), AddressTemplate.class));
+
+        String instanceTemp = serializer.serialize(Context.getSerializationService().getDefaultSerializer().deserialize(Context.getLocationService().getAddressTemplate(), AddressTemplate.class));
+
+        adminService.saveGlobalProperty(
+            new GlobalProperty("jackson.serializer.whitelist.types",
+                "hierarchyOf:org.hibernate.type.MapType"));
+		String orderedMapType = serializer.serialize(new OrderedMapTypeWithNoArg("role", "ref"));
+
+		// verify
+		assertDoesNotThrow(() -> serializer.deserialize(orderedMapType, OrderedMapTypeWithNoArg.class));
 	}
 }

@@ -12,6 +12,7 @@ package org.openmrs.serialization;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.openmrs.OpenmrsObject;
@@ -28,8 +29,6 @@ import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.deser.BeanDeserializerBuilder;
 import com.fasterxml.jackson.databind.deser.BeanDeserializerModifier;
 import com.fasterxml.jackson.databind.deser.SettableBeanProperty;
-import com.fasterxml.jackson.databind.introspect.AnnotatedMember;
-import com.fasterxml.jackson.databind.introspect.AnnotatedMethod;
 import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.databind.ser.BeanPropertyWriter;
@@ -85,22 +84,21 @@ public class UuidReferenceModule extends SimpleModule {
                     BeanDescription beanDesc,
                     List<BeanPropertyWriter> beanProperties) {
 
+                int size = beanProperties.size();
+
+                Map<String, BeanPropertyDefinition> propertyDefMap = beanDesc.findProperties().stream().collect(Collectors.toMap(BeanPropertyDefinition::getName, def -> def));
+
                 Iterator<BeanPropertyWriter> propIt = beanProperties.iterator();
                 while (propIt.hasNext()) {
                     BeanPropertyWriter writer = propIt.next();
+                    BeanPropertyDefinition def = propertyDefMap.get(writer.getName());
 
-                    AnnotatedMember accessor = writer.getMember();
-                    if (accessor instanceof AnnotatedMethod) {
-                        AnnotatedMethod method = (AnnotatedMethod) accessor;
-
-                        // Check if it's a getInstance method
-                        if (method.getName().contains("Instance") && method.getParameterCount() == 0) {
-                            propIt.remove(); // Exclude from serialization
-                            continue;
-                        }
+                    if (def == null || !def.hasField()) {
+                        // Skip if there's no backing field
+                        propIt.remove(); // Exclude from serialization
+                        continue;
                     }
                 }
-
                 for (int i = 0; i < beanProperties.size(); i++) {
                     BeanPropertyWriter original = beanProperties.get(i);
 
