@@ -28,6 +28,8 @@ import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.deser.BeanDeserializerBuilder;
 import com.fasterxml.jackson.databind.deser.BeanDeserializerModifier;
 import com.fasterxml.jackson.databind.deser.SettableBeanProperty;
+import com.fasterxml.jackson.databind.introspect.AnnotatedMember;
+import com.fasterxml.jackson.databind.introspect.AnnotatedMethod;
 import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.databind.ser.BeanPropertyWriter;
@@ -82,6 +84,22 @@ public class UuidReferenceModule extends SimpleModule {
                     SerializationConfig config,
                     BeanDescription beanDesc,
                     List<BeanPropertyWriter> beanProperties) {
+
+                Iterator<BeanPropertyWriter> propIt = beanProperties.iterator();
+                while (propIt.hasNext()) {
+                    BeanPropertyWriter writer = propIt.next();
+
+                    AnnotatedMember accessor = writer.getMember();
+                    if (accessor instanceof AnnotatedMethod) {
+                        AnnotatedMethod method = (AnnotatedMethod) accessor;
+
+                        // Check if it's a getInstance method
+                        if (method.getName().contains("Instance") && method.getParameterCount() == 0) {
+                            propIt.remove(); // Exclude from serialization
+                            continue;
+                        }
+                    }
+                }
 
                 for (int i = 0; i < beanProperties.size(); i++) {
                     BeanPropertyWriter original = beanProperties.get(i);
