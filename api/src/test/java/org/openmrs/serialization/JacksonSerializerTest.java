@@ -10,12 +10,16 @@
 package org.openmrs.serialization;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.equalToIgnoringCase;
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -40,7 +44,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.dataformat.xml.XmlMapper;
+// import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 
 public class JacksonSerializerTest extends BaseContextSensitiveTest {
 
@@ -234,14 +238,14 @@ public class JacksonSerializerTest extends BaseContextSensitiveTest {
 
         Context.getAdministrationService().saveGlobalProperty(new GlobalProperty(
 			    OpenmrsConstants.GLOBAL_PROPERTY_ADDRESS_TEMPLATE, "<org.openmrs.layout.address.AddressTemplate>     <nameMappings class=\"properties\">       <property name=\"postalCode\" value=\"Location.postalCode\"/>       <property name=\"address2\" value=\"Location.address2\"/>       <property name=\"address1\" value=\"Location.address1\"/>       <property name=\"country\" value=\"Location.country\"/>       <property name=\"stateProvince\" value=\"Location.stateProvince\"/>       <property name=\"cityVillage\" value=\"Location.cityVillage\"/>     </nameMappings>     <sizeMappings class=\"properties\">       <property name=\"postalCode\" value=\"10\"/>       <property name=\"address2\" value=\"40\"/>       <property name=\"address1\" value=\"40\"/>       <property name=\"country\" value=\"10\"/>       <property name=\"stateProvince\" value=\"10\"/>       <property name=\"cityVillage\" value=\"10\"/>     </sizeMappings>     <lineByLineFormat>       <string>address1</string>       <string>address2</string>       <string>cityVillage stateProvince country postalCode</string>     </lineByLineFormat>   </org.openmrs.layout.address.AddressTemplate>"));
-        XmlMapper xmlMapper = new XmlMapper();
-        xmlMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        xmlMapper.setDefaultPropertyInclusion(JsonInclude.Value.construct(JsonInclude.Include.NON_EMPTY, JsonInclude.Include.NON_EMPTY));
+        // XmlMapper xmlMapper = new XmlMapper();
+        // xmlMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        // xmlMapper.setDefaultPropertyInclusion(JsonInclude.Value.construct(JsonInclude.Include.NON_EMPTY, JsonInclude.Include.NON_EMPTY));
 
         SimpleXStreamSerializer xstreamserializer =  new SimpleXStreamSerializer();
 
         String xml = "<AddressTemplate>  <nameMappings>    <entry>      <string>postalCode</string>      <string>Location.postalCode</string>    </entry>    <entry>      <string>address2</string>      <string>Location.address2</string>    </entry>    <entry>      <string>address1</string>      <string>Location.address1</string>    </entry>    <entry>      <string>country</string>      <string>Location.country</string>    </entry>    <entry>      <string>stateProvince</string>      <string>Location.stateProvince</string>    </entry>    <entry>      <string>cityVillage</string>      <string>Location.cityVillage</string>    </entry>  </nameMappings>  <sizeMappings>    <entry>      <string>postalCode</string>      <string>10</string>    </entry>    <entry>      <string>address2</string>      <string>40</string>    </entry>    <entry>      <string>address1</string>      <string>40</string>    </entry>    <entry>      <string>country</string>      <string>10</string>    </entry>    <entry>      <string>stateProvince</string>      <string>10</string>    </entry>    <entry>      <string>cityVillage</string>      <string>10</string>    </entry>  </sizeMappings>  <lineByLineFormat>    <string>address1</string>    <string>address2</string>    <string>cityVillage stateProvince country postalCode</string>  </lineByLineFormat>  <requiredElements/>  <maxTokens>0</maxTokens></AddressTemplate>";
-        AddressTemplate tmp = xmlMapper.readValue(xml, AddressTemplate.class);
+        // AddressTemplate tmp = xmlMapper.readValue(xml, AddressTemplate.class);
 
         // String jxml = xmlMapper.writeValueAsString(serializer.deserialize(Context.getLocationService().getAddressTemplate(), AddressTemplate.class));
 
@@ -251,6 +255,10 @@ public class JacksonSerializerTest extends BaseContextSensitiveTest {
 
         String instanceTemp = serializer.serialize(Context.getSerializationService().getDefaultSerializer().deserialize(Context.getLocationService().getAddressTemplate(), AddressTemplate.class));
 
+        OpenmrsModuleResolver resolver = new OpenmrsModuleResolver();
+        resolver.resolveFromUid("org.openmrs.module.core-apps-module");
+        resolver.printResults();
+
         adminService.saveGlobalProperty(
             new GlobalProperty("jackson.serializer.whitelist.types",
                 "hierarchyOf:org.hibernate.type.MapType"));
@@ -259,4 +267,116 @@ public class JacksonSerializerTest extends BaseContextSensitiveTest {
 		// verify
 		assertDoesNotThrow(() -> serializer.deserialize(orderedMapType, OrderedMapTypeWithNoArg.class));
 	}
+
+    public class OpenmrsModuleResolver {
+
+        public class ModuleInfo {
+            String moduleId;
+            String modulePackage;
+            String version;
+
+            ModuleInfo(String moduleId, String modulePackage, String version) {
+                this.moduleId = moduleId;
+                this.modulePackage = modulePackage;
+                this.version = version;
+            }
+
+            String getGroupId() {
+                if (modulePackage != null && moduleId != null && modulePackage.endsWith(moduleId)) {
+                    return modulePackage.substring(0, modulePackage.length() - moduleId.length() - 1);
+                }
+                return modulePackage;
+            }
+
+            @Override
+            public String toString() {
+                return moduleId + " | " + getGroupId() + " | " + version;
+            }
+        }
+
+        private final Map<String, ModuleInfo> resolvedModules = new HashMap<>();
+        private final ObjectMapper objectMapper = new ObjectMapper();
+
+        public void resolveFromUid(String uid) throws Exception {
+            resolveRecursive(uid);
+        }
+
+        private void resolveRecursive(String uid) throws Exception {
+            JsonNode addon = fetchAddon(uid);
+            JsonNode latest = getLatestVersion(addon);
+            if (latest == null) {
+                System.out.println("No versions found for: " + uid);
+                return;
+            }
+
+            String moduleId = latest.get("moduleId").asText();
+            String modulePackage = latest.get("modulePackage").asText();
+            String version = latest.get("version").asText();
+
+            ModuleInfo current = resolvedModules.get(moduleId);
+            if (current == null || compareVersions(version, current.version) > 0) {
+                resolvedModules.put(moduleId, new ModuleInfo(moduleId, modulePackage, version));
+            } else {
+                return;
+            }
+
+            JsonNode requires = latest.get("requireModules");
+            if (requires != null && requires.isArray()) {
+                for (JsonNode dep : requires) {
+                    String depUid = dep.get("module").asText(); // full UID
+                    resolveRecursive(depUid);
+                }
+            }
+        }
+
+        private JsonNode fetchAddon(String uid) throws Exception {
+            if ("org.openmrs.module.webservices.rest".equalsIgnoreCase(uid)){
+                uid = "org.openmrs.module.webservices-rest";
+            } else if ("org.openmrs.module.coreapps".equalsIgnoreCase(uid)){
+                uid = "org.openmrs.module.core-apps-module";
+            } else if ("org.openmrs.event".equalsIgnoreCase(uid)){
+                uid = "org.openmrs.module.event";
+            } else if ("org.openmrs.module.serialization.xstream".equalsIgnoreCase(uid)){
+                uid = "org.openmrs.module.serialization-xstream";
+            } else if ("org.openmrs.calculation".equalsIgnoreCase(uid)){
+                uid = "org.openmrs.module.calculation";
+            }
+            String apiUrl = "https://addons.openmrs.org/api/v1/addon/" + uid;
+            HttpURLConnection conn = (HttpURLConnection) new URI(apiUrl).toURL().openConnection();
+            conn.setRequestProperty("Accept", "application/json");
+            try (InputStream in = conn.getInputStream()) {
+                return objectMapper.readTree(in);
+            }
+        }
+
+        private JsonNode getLatestVersion(JsonNode addon) {
+            JsonNode versions = addon.get("versions");
+            if (versions == null || !versions.isArray() || versions.size() == 0) return null;
+
+            JsonNode latest = versions.get(0);
+            for (JsonNode node : versions) {
+                if (compareVersions(node.get("version").asText(), latest.get("version").asText()) > 0) {
+                    latest = node;
+                }
+            }
+            return latest;
+        }
+
+        private int compareVersions(String v1, String v2) {
+            String[] a = v1.split("\\.");
+            String[] b = v2.split("\\.");
+            for (int i = 0; i < Math.max(a.length, b.length); i++) {
+                int ai = i < a.length ? Integer.parseInt(a[i]) : 0;
+                int bi = i < b.length ? Integer.parseInt(b[i]) : 0;
+                if (ai != bi) return Integer.compare(ai, bi);
+            }
+            return 0;
+        }
+
+        public void printResults() {
+            for (ModuleInfo info : resolvedModules.values()) {
+                System.out.printf("%-30s | %-40s | %s%n", info.moduleId, info.getGroupId(), info.version);
+            }
+        }
+    }
 }
