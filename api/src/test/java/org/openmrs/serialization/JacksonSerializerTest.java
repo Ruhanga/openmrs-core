@@ -17,14 +17,23 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.File;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.jar.JarFile;
+import java.util.zip.ZipEntry;
+
+import javax.xml.parsers.DocumentBuilderFactory;
 
 import org.apache.commons.lang3.StringUtils;
 import org.hibernate.type.OrderedMapType;
@@ -39,6 +48,9 @@ import org.openmrs.test.jupiter.BaseContextSensitiveTest;
 import org.openmrs.util.OpenmrsConstants;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -256,7 +268,7 @@ public class JacksonSerializerTest extends BaseContextSensitiveTest {
         String instanceTemp = serializer.serialize(Context.getSerializationService().getDefaultSerializer().deserialize(Context.getLocationService().getAddressTemplate(), AddressTemplate.class));
 
         OpenmrsModuleResolver resolver = new OpenmrsModuleResolver();
-        resolver.resolveFromUid("org.openmrs.module.core-apps-module");
+        resolver.resolve("org.openmrs.module", "coreapps-omod", "2.1.0");
         resolver.printResults();
 
         adminService.saveGlobalProperty(
@@ -272,110 +284,108 @@ public class JacksonSerializerTest extends BaseContextSensitiveTest {
 
         public class ModuleInfo {
             String moduleId;
-            String modulePackage;
+            String groupId;
             String version;
 
-            ModuleInfo(String moduleId, String modulePackage, String version) {
+            ModuleInfo(String moduleId, String groupId, String version) {
                 this.moduleId = moduleId;
-                this.modulePackage = modulePackage;
+                this.groupId = groupId;
                 this.version = version;
-            }
-
-            String getGroupId() {
-                if (modulePackage != null && moduleId != null && modulePackage.endsWith(moduleId)) {
-                    return modulePackage.substring(0, modulePackage.length() - moduleId.length() - 1);
-                }
-                return modulePackage;
             }
 
             @Override
             public String toString() {
-                return moduleId + " | " + getGroupId() + " | " + version;
+                return moduleId + " | " + groupId + " | " + version;
             }
         }
 
-        private final Map<String, ModuleInfo> resolvedModules = new HashMap<>();
-        private final ObjectMapper objectMapper = new ObjectMapper();
+        private final Map<String, ModuleInfo> resolved = new HashMap<>();
 
-        public void resolveFromUid(String uid) throws Exception {
-            resolveRecursive(uid);
+        public void resolve(String groupId, String artifactId, String version) throws Exception {
+            resolveRecursive(groupId, artifactId, version);
         }
 
-        private void resolveRecursive(String uid) throws Exception {
-            JsonNode addon = fetchAddon(uid);
-            JsonNode latest = getLatestVersion(addon);
-            if (latest == null) {
-                System.out.println("No versions found for: " + uid);
-                return;
+        private void resolveRecursive(String groupId, String artifactId, String version) throws Exception {
+            String moduleId = artifactId.replaceAll("(-omod|-module)$", "");
+            ModuleInfo current = resolved.get(moduleId);
+
+            if (current != null && compareVersions(current.version, version) >= 0) return;
+
+            resolved.put(moduleId, new ModuleInfo(moduleId, groupId, version));
+
+            File jarFile = downloadJar(groupId, artifactId, version);
+            List<Dependency> dependencies = parseDependenciesFromJar(jarFile);
+
+            for (Dependency dep : dependencies) {
+                resolveRecursive(dep.groupId, dep.artifactId, dep.version);
             }
+        }
 
-            String moduleId = latest.get("moduleId").asText();
-            String modulePackage = latest.get("modulePackage").asText();
-            String version = latest.get("version").asText();
-
-            ModuleInfo current = resolvedModules.get(moduleId);
-            if (current == null || compareVersions(version, current.version) > 0) {
-                resolvedModules.put(moduleId, new ModuleInfo(moduleId, modulePackage, version));
-            } else {
-                return;
+        private File downloadJar(String groupId, String artifactId, String version) throws Exception {
+            String groupPath = groupId.replace('.', '/');
+            String url = String.format(
+                "https://repo.openmrs.org/public/%s/%s/%s/%s-%s.jar",
+                groupPath, artifactId, version, artifactId, version
+            );
+            Path tmp = Files.createTempFile("module-", ".jar");
+            try (InputStream in = URI.create(url).toURL().openStream()) {
+                Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);
             }
+            return tmp.toFile();
+        }
 
-            JsonNode requires = latest.get("requireModules");
-            if (requires != null && requires.isArray()) {
-                for (JsonNode dep : requires) {
-                    String depUid = dep.get("module").asText(); // full UID
-                    resolveRecursive(depUid);
+        private List<Dependency> parseDependenciesFromJar(File jarFile) throws Exception {
+            List<Dependency> dependencies = new ArrayList<>();
+            try (JarFile jar = new JarFile(jarFile)) {
+                ZipEntry entry = jar.getEntry("config.xml");
+                if (entry == null) return dependencies;
+
+                try (InputStream in = jar.getInputStream(entry)) {
+                    Document doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(in);
+                    NodeList requireModules = doc.getElementsByTagName("require_module");
+
+                    for (int i = 0; i < requireModules.getLength(); i++) {
+                        Element el = (Element) requireModules.item(i);
+                        String uid = el.getTextContent().trim();
+                        String version = el.getAttribute("version").trim();
+
+                        if (!uid.contains(".")) continue;
+
+                        String[] parts = uid.split("\\.");
+                        String artifactId = parts[parts.length - 1];
+                        String groupId = String.join(".", Arrays.asList(parts).subList(0, parts.length - 1));
+
+                        dependencies.add(new Dependency(groupId, artifactId, version));
+                    }
                 }
             }
+            return dependencies;
         }
 
-        private JsonNode fetchAddon(String uid) throws Exception {
-            if ("org.openmrs.module.webservices.rest".equalsIgnoreCase(uid)){
-                uid = "org.openmrs.module.webservices-rest";
-            } else if ("org.openmrs.module.coreapps".equalsIgnoreCase(uid)){
-                uid = "org.openmrs.module.core-apps-module";
-            } else if ("org.openmrs.event".equalsIgnoreCase(uid)){
-                uid = "org.openmrs.module.event";
-            } else if ("org.openmrs.module.serialization.xstream".equalsIgnoreCase(uid)){
-                uid = "org.openmrs.module.serialization-xstream";
-            } else if ("org.openmrs.calculation".equalsIgnoreCase(uid)){
-                uid = "org.openmrs.module.calculation";
-            }
-            String apiUrl = "https://addons.openmrs.org/api/v1/addon/" + uid;
-            HttpURLConnection conn = (HttpURLConnection) new URI(apiUrl).toURL().openConnection();
-            conn.setRequestProperty("Accept", "application/json");
-            try (InputStream in = conn.getInputStream()) {
-                return objectMapper.readTree(in);
-            }
-        }
-
-        private JsonNode getLatestVersion(JsonNode addon) {
-            JsonNode versions = addon.get("versions");
-            if (versions == null || !versions.isArray() || versions.size() == 0) return null;
-
-            JsonNode latest = versions.get(0);
-            for (JsonNode node : versions) {
-                if (compareVersions(node.get("version").asText(), latest.get("version").asText()) > 0) {
-                    latest = node;
-                }
-            }
-            return latest;
-        }
-
-        private int compareVersions(String v1, String v2) {
-            String[] a = v1.split("\\.");
-            String[] b = v2.split("\\.");
-            for (int i = 0; i < Math.max(a.length, b.length); i++) {
-                int ai = i < a.length ? Integer.parseInt(a[i]) : 0;
-                int bi = i < b.length ? Integer.parseInt(b[i]) : 0;
+        private int compareVersions(String a, String b) {
+            String[] x = a.split("\\.");
+            String[] y = b.split("\\.");
+            for (int i = 0; i < Math.max(x.length, y.length); i++) {
+                int ai = i < x.length ? Integer.parseInt(x[i]) : 0;
+                int bi = i < y.length ? Integer.parseInt(y[i]) : 0;
                 if (ai != bi) return Integer.compare(ai, bi);
             }
             return 0;
         }
 
         public void printResults() {
-            for (ModuleInfo info : resolvedModules.values()) {
-                System.out.printf("%-30s | %-40s | %s%n", info.moduleId, info.getGroupId(), info.version);
+            resolved.values().forEach(m -> System.out.printf("%-30s | %-40s | %s%n", m.moduleId, m.groupId, m.version));
+        }
+
+        private class Dependency {
+            String groupId;
+            String artifactId;
+            String version;
+
+            Dependency(String groupId, String artifactId, String version) {
+                this.groupId = groupId;
+                this.artifactId = artifactId;
+                this.version = version;
             }
         }
     }
